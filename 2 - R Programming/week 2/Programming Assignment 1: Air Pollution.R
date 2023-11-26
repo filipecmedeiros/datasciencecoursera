@@ -26,3 +26,19 @@ complete <- function(directory, id=1:332){
     
     df
 }
+
+corr <- function(directory, threshold = 0){
+    files <- list.files(directory, pattern = ".csv")
+    #print(files)
+    cr <- c()
+    for (file in files){
+        df_aux <- read.csv(paste(directory, file, sep=""))
+        df_aux <- df_aux[complete.cases(df_aux), ]
+        if (nrow(df_aux)>threshold){
+            cr <- c(cr, cor(df_aux$sulfate, df_aux$nitrate))
+        }
+    }
+    
+    cr
+}
+
