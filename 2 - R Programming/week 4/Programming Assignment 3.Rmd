@@ -1,0 +1,281 @@
+
+
+# 1 Plot the 30-day mortality rates for heart attack
+```{r}
+outcome <- read.csv("data/outcome-of-care-measures.csv", colClasses = "character")
+head(outcome)
+```
+``` {r}
+print(ncol(outcome))
+```
+
+``` {r}
+print(nrow(outcome))
+```
+
+``` {r}
+print(names(outcome))
+```
+
+
+``` {r}
+outcome[, 11] <- as.numeric(outcome[, 11])
+## You may get a warning about NAs being introduced; that is okay
+hist(outcome[, 11])
+```
+
+``` {r}
+
+
+sapply("Heart Attack", function(x) {
+  paste(sapply(strsplit(x, ' '), capitalize), collapse='.')
+})
+```
+
+
+``` {r}
+
+outcome[
+    outcome['State'] == "TX",
+    c("Hospital.Name",
+      paste("Lower.Mortality.Estimate...Hospital.30.Day.Death..Mortality..Rates.from.",sub(" ", ".", 
+        tools::toTitleCase("heart attack")), sep = ""))
+]
+```
+
+``` {r}
+best <- function(state, outcome) {
+    # Read outcome data
+    df <- read.csv("data/outcome-of-care-measures.csv", colClasses = "character")
+    
+    # Check that state and outcome are valid
+    if (!(state %in% unique(df$State))){
+        stop("invalid state")
+    }
+    if(!(outcome %in% c("heart attack", "heart failure", "pneumonia"))){
+        stop("invalid outcome")
+    }
+    
+    
+    # Subset the data for the given state and outcome
+    subset_data <- df[df$State == state, ]
+    
+    # Extract the column with mortality rates
+    mortality_col <- paste("Lower.Mortality.Estimate...Hospital.30.Day.Death..Mortality..Rates.from.",
+                           sub(" ", ".",tools::toTitleCase(outcome)), sep = "")
+    
+    # Use suppressWarnings to ignore NAs introduced by coercion
+    suppressWarnings({
+        ## Convert mortality rates to numeric
+        subset_data[[mortality_col]] <- as.numeric(subset_data[[mortality_col]])
+    })
+    
+    # Sort hospitals based on mortality rates and hospital's name
+    sorted_data <- subset_data[order(subset_data[[mortality_col]],
+                                     subset_data[["Hospital.Name"]]), ]
+    
+    # Get the index of the hospital with the lowest rate
+    min_index <- which.min(sorted_data[[mortality_col]])
+    
+    # Get the name of the hospital with the lowest mortality rate
+    hospital_name <- sorted_data$Hospital.Name[min_index]
+    
+    # Return hospital name in that state with lowest 30-day death
+    return(hospital_name)
+}
+```
+
+
+```{r}
+best("TX", "heart attack")
+```
+
+```{r}
+best("TX", "heart failure")
+```
+
+```{r}
+best("MD", "heart attack")
+```
+
+```{r}
+best("MD", "pneumonia")
+```
+```{r}
+best("BB", "heart attack")
+```
+
+```{r}
+best("NY", "hert attack")
+```
+
+
+# 3 Ranking hospitals by outcome in a state
+
+```{r}
+rankhospital <- function(state, outcome, num) {
+    # Read outcome data
+    df <- read.csv("data/outcome-of-care-measures.csv", colClasses = "character")
+    
+    # Check that state and outcome are valid
+    if (!(state %in% unique(df$State))){
+        stop("invalid state")
+    }
+    if(!(outcome %in% c("heart attack", "heart failure", "pneumonia"))){
+        stop("invalid outcome")
+    }
+    
+    # Subset the data for the given state and outcome
+    subset_data <- df[df$State == state, ]
+    
+    # Extract the column with mortality rates
+    mortality_col <- paste("Hospital.30.Day.Death..Mortality..Rates.from.",
+                           sub(" ", ".",tools::toTitleCase(outcome)), sep = "")
+    
+    
+    # Use suppressWarnings to ignore NAs introduced by coercion
+    suppressWarnings({
+        ## Convert mortality rates to numeric
+        subset_data[[mortality_col]] <- as.numeric(subset_data[[mortality_col]])
+    })
+    
+    # Remove NAs
+    subset_data <- subset_data[complete.cases(subset_data[, c("State", "Hospital.Name", mortality_col)]),]
+    
+    # Sort hospitals based on mortality rates and hospital's name
+    sorted_data <- subset_data[order(subset_data[[mortality_col]],
+                                     subset_data[["Hospital.Name"]]), ]
+    
+    # Rank hospitals
+    sorted_data["Rank"] <- rank(sorted_data[mortality_col], ties.method= "first")
+    
+    # Set rank as index
+    rownames(sorted_data) <- sorted_data$Rank
+    
+    if (is.numeric(num)) {
+        # Get the name of the hospital with the lowest mortality rate
+        hospital_name <- sorted_data$Hospital.Name[num]
+    }
+    else if (tolower(num) == "best") {
+        # Get the hospital with the lowest mortality rate
+        hospital_name <- sorted_data$Hospital.Name[1]
+    } else if (tolower(num) == "worst") {
+        # Get the hospital with the highest mortality rate
+        hospital_name <- hospital_name <- sorted_data$Hospital.Name[max(sorted_data$Rank)]
+    }
+    
+    #print(tail(sorted_data[,c("State", "Hospital.Name", mortality_col, "Rank")]))
+    return(hospital_name)
+}
+```
+
+
+
+```{r}
+rankhospital("TX", "heart failure", 4)
+```
+
+
+```{r}
+rankhospital("TX", "heart failure", 1)
+```
+
+```{r}
+rankhospital("MD", "heart attack", "worst")
+```
+
+
+```{r}
+rankhospital("MN", "heart attack", 5000)
+```
+
+
+# 4 Ranking Hospitals in all states
+
+
+``` {r}
+rankall <- function(outcome, num="best") {
+    # Read outcome data
+    df <- read.csv("data/outcome-of-care-measures.csv", colClasses = "character")
+    
+    # Check that state and outcome are valid
+    if (!(state %in% unique(df$State))){
+        stop("invalid state")
+    }
+    if(!(outcome %in% c("heart attack", "heart failure", "pneumonia"))){
+        stop("invalid outcome")
+    }
+    
+    # Subset the data for the given state and outcome
+    #subset_data <- df[df$State == state, ]
+    
+    # Extract the column with mortality rates
+    mortality_col <- paste("Hospital.30.Day.Death..Mortality..Rates.from.",
+                           sub(" ", ".",tools::toTitleCase(outcome)), sep = "")
+    
+    
+    
+    states <- sort(unique(df$State))
+    hospitals <- data.frame("State"=states, "Hospital"=NA)
+    
+    for (state in states){
+        # Subset the data for the given state and outcome
+        subset_data <- df[df$State == state, ]
+        
+        # Use suppressWarnings to ignore NAs introduced by coercion
+        suppressWarnings({
+            ## Convert mortality rates to numeric
+            subset_data[[mortality_col]] <- as.numeric(subset_data[[mortality_col]])
+        })
+        
+        # Remove NAs
+        subset_data <- subset_data[complete.cases(subset_data[, c("State", "Hospital.Name", mortality_col)]),]
+        
+        # Sort hospitals based on mortality rates and hospital's name
+        sorted_data <- subset_data[order(subset_data[[mortality_col]],
+                                         subset_data[["Hospital.Name"]]), ]
+        
+        # Rank hospitals
+        sorted_data["Rank"] <- rank(sorted_data[mortality_col], ties.method= "first")
+        
+        # Set rank as index
+        rownames(sorted_data) <- sorted_data$Rank
+        
+        if (is.numeric(num)) {
+            # Get the name of the hospital with the lowest mortality rate
+            hospital_name <- sorted_data$Hospital.Name[num]
+        }
+        else if (tolower(num) == "best") {
+            # Get the hospital with the lowest mortality rate
+            hospital_name <- sorted_data$Hospital.Name[1]
+        } else if (tolower(num) == "worst") {
+            # Get the hospital with the highest mortality rate
+            hospital_name <- hospital_name <- sorted_data$Hospital.Name[max(sorted_data$Rank)]
+        }
+        
+        hospitals[hospitals$State == state,"Hospital"] <- hospital_name
+    }
+    
+    #print(tail(sorted_data[,c("State", "Hospital.Name", mortality_col, "Rank")]))
+    return(hospitals)
+}
+```
+
+```{r}
+head(rankall("heart attack", 20), 10)
+```
+
+
+```{r}
+tail(rankall("pneumonia", "worst"), 3)
+```
+
+
+
+```{r}
+tail(rankall("heart failure"), 10)
+```
+
+
+
+
