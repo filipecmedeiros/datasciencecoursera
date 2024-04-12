@@ -1,0 +1,225 @@
+---
+title: "Project 2"
+output:
+  pdf_document: default
+  html_document: default
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Synopsis
+This project aims to analyze the NOAA Storm Database and explore the effects of storms and weather events on both population and economy.
+
+This analysis explores which types of events are most harmful on:
+- Health (injuries and fatalities)
+- Property and crops (economic consequences)
+
+[NOAA Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+
+# 2. Data Processing
+
+## 2.1 Loading data
+
+```{r getting_data, message=FALSE, warning=FALSE, results='hide'}
+#install.packages("dplyr")
+library(dplyr)
+
+# Download dataset
+url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+dataset <- "storm_data.csv"
+file <- paste("./", dataset, ".bz2", sep="")
+download.file(url, destfile = file, method = "curl")
+```
+
+```{r loading_data}
+# Read dataset
+df <- read.csv("./storm_data.csv.bz2")
+head(df)
+```
+## 2.2 Variables available
+
+```{r columns}
+colnames(df)
+```
+## 2.3 Filtering variables
+
+Selecting only variables of interest. Additionally, we are filtering the rows with data available.
+
+```{r filter_columns}
+
+cols <- c("EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP", 
+          "CROPDMG", "CROPDMGEXP")
+
+df <- df %>% 
+    select(cols) %>%
+    filter(EVTYPE != "?" & (INJURIES > 0 | FATALITIES > 0 | PROPDMG > 0 | CROPDMG > 0))
+    
+```
+
+
+## 2.4 Converting numbers
+Cleaning up the PROPDMGEXP and CROPDMGEXP columns to facilitate their use in calculating property and crop costs.
+
+```{r converting_numbers}
+# Change all damage exponents to uppercase
+cols <- c("PROPDMGEXP", "CROPDMGEXP")
+df <- df %>%
+  mutate(across(all_of(cols), toupper))
+
+# Map property damage alphanumeric exponents to numeric values
+prop_dmg_key <-  c("\"\"" = 10^0,
+                   "-" = 10^0, 
+                   "+" = 10^0,
+                   "0" = 10^0,
+                   "1" = 10^1,
+                   "2" = 10^2,
+                   "3" = 10^3,
+                   "4" = 10^4,
+                   "5" = 10^5,
+                   "6" = 10^6,
+                   "7" = 10^7,
+                   "8" = 10^8,
+                   "9" = 10^9,
+                   "H" = 10^2,
+                   "K" = 10^3,
+                   "M" = 10^6,
+                   "B" = 10^9)
+
+# Map crop damage alphanumeric exponents to numeric values
+crop_dmg_key <-  c("\"\"" = 10^0,
+                   "?" = 10^0, 
+                   "0" = 10^0,
+                   "K" = 10^3,
+                   "M" = 10^6,
+                   "B" = 10^9)
+
+df <- df %>%
+  mutate(PROPDMGEXP = prop_dmg_key[as.character(PROPDMGEXP)]) %>%
+  mutate(PROPDMGEXP = ifelse(is.na(PROPDMGEXP), 10^0, PROPDMGEXP)) %>%
+  mutate(CROPDMGEXP = crop_dmg_key[as.character(CROPDMGEXP)]) %>%
+  mutate(CROPDMGEXP = ifelse(is.na(CROPDMGEXP), 10^0, CROPDMGEXP))
+```
+
+## 2.5 Calculating economic costs
+
+```{r costs}
+df <- df %>%
+    mutate(prop_cost = PROPDMG * PROPDMGEXP,
+           crop_cost = CROPDMG * CROPDMGEXP) %>%
+    select(EVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, prop_cost, 
+           CROPDMG, CROPDMGEXP, crop_cost)
+```
+
+
+## 2.6 Calculating total cost by event
+
+```{r total_cost}
+total_cost <- df %>%
+    group_by(EVTYPE) %>%
+    summarise(prop_cost = sum(prop_cost),
+              crop_cost = sum(crop_cost),
+              total_cost = sum(prop_cost) + sum(crop_cost)) %>%
+    arrange(desc(total_cost)) %>%
+    slice_head(n = 10)
+
+head(total_cost)
+```
+## 2.7 Calculating total fatalities and injuries by event
+
+```{r total_injuries}
+total_injuries <- df %>%
+    group_by(EVTYPE) %>%
+    summarise(FATALITIES = sum(FATALITIES),
+              INJURIES = sum(INJURIES),
+              totals = sum(FATALITIES) + sum(INJURIES)) %>%
+    arrange(desc(FATALITIES)) %>%
+    slice_head(n = 10)
+
+head(total_injuries)
+
+```
+
+# 3. Results
+
+## 3.1 Which types of events are most harmful to population health?
+
+```{r}
+#install.packages('tidyr')
+library(tidyr)
+
+df_harmful <- total_injuries %>%
+    pivot_longer(cols = c("FATALITIES", "INJURIES"),
+                 names_to = "type",
+                 values_to = "count")
+
+head(df_harmful)
+```
+
+```{r}
+library("ggplot2")
+
+# Create chart
+health_chart <- ggplot(df_harmful, aes(x=reorder(EVTYPE, -count), y=count))
+
+# Plot data as bar chart
+health_chart = health_chart + geom_bar(stat="identity", aes(fill=type), position="dodge")
+
+# Format y-axis scale and set y-axis label
+health_chart = health_chart + ylab("Frequency Count") 
+
+# Set x-axis label
+health_chart = health_chart + xlab("Event Type") 
+
+# Rotate x-axis tick labels 
+health_chart = health_chart + theme(axis.text.x = element_text(angle=45, hjust=1))
+
+# Set chart title and center it
+health_chart = health_chart + ggtitle("Top 10 US Killers") + theme(plot.title = element_text(hjust = 0.5))
+
+health_chart
+```
+
+
+
+
+## 3.2 Which types of events have the greatest economic consequences?
+
+
+```{r}
+df_econ <- total_cost %>%
+    pivot_longer(cols = c("prop_cost", "crop_cost"),
+                 names_to = "damage_type",
+                 values_to = "cost")
+
+head(df_econ)
+```
+
+``` {r}
+
+# Create chart
+econ_chart <- ggplot(df_econ, aes(x=reorder(EVTYPE, -cost), y=cost))
+
+# Plot data as bar chart
+econ_chart = econ_chart + geom_bar(stat="identity", aes(fill=damage_type), position="dodge")
+
+# Format y-axis scale and set y-axis label
+econ_chart = econ_chart + ylab("Cost") 
+
+# Set x-axis label
+econ_chart = econ_chart + xlab("Event Type") 
+
+# Rotate x-axis tick labels 
+econ_chart = econ_chart + theme(axis.text.x = element_text(angle=45, hjust=1))
+
+# Set chart title and center it
+econ_chart = econ_chart + ggtitle("Top Events causing Economic Consequences") + theme(plot.title = element_text(hjust = 0.5))
+
+econ_chart
+```
+
+
+
+
